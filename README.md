@@ -21,3 +21,7 @@ Discordの多機能Bot
 
 # リンク類
 <a href="https://www.sharkbot.xyz/">公式サイト</a>
+
+# ソースコードほしい？
+プライベートな情報以外のソースコードは、DiscordにDMしてくれれば渡します。<br>
+ただし、渡せない時もあります。
