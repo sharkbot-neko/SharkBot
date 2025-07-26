@@ -178,6 +178,18 @@ def generate_chat_image(messages: list[dict]) -> io.BytesIO:
     output.seek(0)
     return output
 
+async def check_nsfw(image_bytes):
+    async with aiohttp.ClientSession() as session:
+        data = aiohttp.FormData()
+        data.add_field("image", image_bytes, filename="image.jpg", content_type="image/jpeg")
+
+        async with session.post("http://192.168.11.26:3000/analyze", data=data) as resp:
+            if resp.status == 200:
+                result = await resp.json()
+                return result
+            else:
+                return {"safe": False}
+
 class UnShort():
     def __init__(self):
         self.session = requests.Session()
@@ -342,7 +354,14 @@ class FunCog(commands.Cog):
     @commands.hybrid_group(name="fun", description="ランダムな色を生成します。", fallback="random_color")
     @commands.cooldown(2, 10, commands.BucketType.guild)
     async def random_color(self, ctx: commands.Context):
-        await ctx.reply(embed=discord.Embed(title="ランダムな色", color=discord.Color.random()))
+        r = random.randint(0, 255)
+        g = random.randint(0, 255)
+        b = random.randint(0, 255)
+        await ctx.reply(embed=discord.Embed(title="ランダムな色", color=discord.Color.from_rgb(r, g, b), description=f"""
+r: {r}
+g: {g}
+b: {b}
+"""))
 
     @random_color.command(name="suddendeath", description="突然の死を生成します。")
     @commands.cooldown(2, 10, commands.BucketType.guild)
@@ -353,7 +372,55 @@ class FunCog(commands.Cog):
     @random_color.command(name="janken", description="じゃんけんをします。")
     @commands.cooldown(2, 10, commands.BucketType.guild)
     async def janken(self, ctx: commands.Context):
-        await ctx.reply(embed=discord.Embed(title="じゃんけん", description=f"ぼくは「{random.choice(["ぐー", "ちょき", "ぱー"])}」をだしたよ！", color=discord.Color.red()))
+        bot = random.choice(["ぐー", "ちょき", "ぱー"])
+        def check(user: str, bot: str):
+            if user == bot:
+                return "あいこです\nもう一回やってみる？"
+            if user == "ぐー" and bot == "ちょき":
+                return "あなたの勝ち\nもう一回やってみる？"
+            if user == "ちょき" and bot == "ぱー":
+                return "あなたの勝ち\nもう一回やってみる？"
+            if user == "ぱー" and bot == "ぐー":
+                return "あなたの勝ち\nもう一回やってみる？"
+            return "Botの勝ち\nもう一回チャレンジしてね！"
+        class AnsView(discord.ui.View):
+            def __init__(self):
+                super().__init__(timeout=180)
+
+            @discord.ui.button(label="ぐー", style=discord.ButtonStyle.blurple)
+            async def goo(self, interaction: discord.Interaction, button: discord.ui.Button):
+                await interaction.response.defer(ephemeral=True)
+                if ctx.author.id != interaction.user.id:
+                    return await interaction.followup.send(ephemeral=True, content="あなたのボタンではありません。")
+                await interaction.message.edit(view=None, embed=discord.Embed(title="じゃんけん", description=f"あなた: {button.label}\nBot: {bot}\n\n" + check(button.label, bot), color=discord.Color.blue()))
+
+            @discord.ui.button(label="ちょき", style=discord.ButtonStyle.blurple)
+            async def choki(self, interaction: discord.Interaction, button: discord.ui.Button):
+                await interaction.response.defer(ephemeral=True)
+                if ctx.author.id != interaction.user.id:
+                    return await interaction.followup.send(ephemeral=True, content="あなたのボタンではありません。")
+                await interaction.message.edit(view=None, embed=discord.Embed(title="じゃんけん", description=f"あなた: {button.label}\nBot: {bot}\n\n" + check(button.label, bot), color=discord.Color.blue()))
+
+            @discord.ui.button(label="ぱー", style=discord.ButtonStyle.blurple)
+            async def par(self, interaction: discord.Interaction, button: discord.ui.Button):
+                await interaction.response.defer(ephemeral=True)
+                if ctx.author.id != interaction.user.id:
+                    return await interaction.followup.send(ephemeral=True, content="あなたのボタンではありません。")
+                await interaction.message.edit(view=None, embed=discord.Embed(title="じゃんけん", description=f"あなた: {button.label}\nBot: {bot}\n\n" + check(button.label, bot), color=discord.Color.blue()))
+
+            @discord.ui.button(label="あきらめる", style=discord.ButtonStyle.red)
+            async def exit(self, interaction: discord.Interaction, button: discord.ui.Button):
+                await interaction.response.defer(ephemeral=True)
+                if ctx.author.id != interaction.user.id:
+                    return await interaction.followup.send(ephemeral=True, content="あなたのボタンではありません。")
+                await interaction.message.edit(view=None, embed=discord.Embed(title="じゃんけん", description="Botの勝ち\nもう一回チャレンジしてね！", color=discord.Color.blue()))
+
+        await ctx.reply(embed=discord.Embed(title="じゃんけん", description="""
+・グーはチョキに勝ち、パーに負けます
+・チョキはパーに勝ち、グーに負けます
+・パーはグーに勝ち、チョキに負けます
+同じ手を両者が出した場合は、あいことなります。
+""", color=discord.Color.blue()), view=AnsView())
 
     @random_color.command(name="keigo", description="敬語に変換します。")
     @commands.cooldown(2, 10, commands.BucketType.guild)
@@ -514,6 +581,28 @@ class FunCog(commands.Cog):
     async def roll(self, ctx: commands.Context, 何面か: int):
         await ctx.reply(f"🎲 {ctx.author.mention}: {random.randint(1, 何面か)}")
 
+    @random_color.command(name="magickblock", description="面白いことが起きるブロックを開けます。")
+    @commands.cooldown(2, 10, commands.BucketType.guild)
+    async def magickblock(self, ctx: commands.Context):
+        lucks = [
+            ("大量のTNT", "https://fukafuka295.jp/wp-content/uploads/2020/02/minecraft-lucky-block-mod-25-768x432.jpg.webp"),
+            ("大量のアイテム", "https://fukafuka295.jp/wp-content/uploads/2020/02/minecraft-lucky-block-mod-8-768x432.jpg.webp"),
+            ("帯電クリーパー", "https://fukafuka295.jp/wp-content/uploads/2020/02/minecraft-lucky-block-mod-26-768x432.jpg.webp"),
+            ("数種類の馬", "https://fukafuka295.jp/wp-content/uploads/2020/02/minecraft-lucky-block-mod-7-768x432.jpg.webp"),
+        ]
+        choices = random.choice(lucks)
+        await ctx.reply(embed=discord.Embed(title=choices[0], color=discord.Color.yellow()).set_image(url=choices[1]).set_footer(text="画像元サイト: fukafuka295.jp").set_author(name=ctx.author.name, icon_url=ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url))
+
+    @random_color.command(name="tanabata", description="七夕の短冊を作成しました。")
+    @commands.cooldown(2, 10, commands.BucketType.guild)
+    async def tanabata(self, ctx: commands.Context, 願い事: str):
+        res = "```★┷┓\n"
+        for t in 願い事:
+            res += "┃" + t + "┃\n"
+        res += "┗━★```"
+        await ctx.reply(embed=discord.Embed(title="短冊", description=res, color=discord.Color.green())
+                        .set_footer(text="http://tanzaku-maker.rhp.ninja-x.jp/"))
+
     @commands.hybrid_group(name="image", description="猫を取得します。", fallback="cat")
     @commands.cooldown(2, 10, commands.BucketType.guild)
     async def cat_image(self, ctx: commands.Context):
@@ -609,7 +698,8 @@ class FunCog(commands.Cog):
         with io.BytesIO() as save_:
             base.save(save_, format="PNG", optimize=True)
             save_.seek(0)
-            await ctx.reply(file=discord.File(save_, "gacha.jpg"))
+            file = discord.File(save_, "gacha.jpg")
+            await ctx.reply(file=file)
 
     @cat_image.command(name="progress", description="Minecraftの進捗画像を生成します。")
     @commands.cooldown(2, 10, commands.BucketType.guild)
@@ -705,7 +795,8 @@ class FunCog(commands.Cog):
 
                 image_bytes = io.BytesIO(await resp.read())
                 image_bytes.seek(0)
-                await ctx.reply(file=discord.File(image_bytes, "profile.png"))
+                file = discord.File(image_bytes, "profile.png")
+                await ctx.reply(file=file)
 
     @cat_image.command(name="miq", description="Make it a quoteを作成します。")
     @commands.cooldown(2, 10, commands.BucketType.guild)
@@ -749,10 +840,12 @@ class FunCog(commands.Cog):
             text,
             color
         )
-        with io.BytesIO() as image_binary:
-            miq.save(image_binary, 'PNG')
-            image_binary.seek(0)
-            await ctx.reply(file=discord.File(fp=image_binary, filename='fake_quote.png'), view=MiqButton())
+        image_binary = io.BytesIO()
+        miq.save(image_binary, 'PNG')
+        image_binary.seek(0)
+        file = discord.File(fp=image_binary, filename='fake_quote.png')
+        await ctx.reply(file=file, view=MiqButton(), content=f"{len(image_binary.getvalue())} bytes")
+        image_binary.close()
 
     @cat_image.command(name="roulette", description="ルーレットを生成します。ワードは,で区切ってください。")
     @commands.cooldown(2, 10, commands.BucketType.guild)
@@ -852,7 +945,8 @@ class FunCog(commands.Cog):
         try:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, partial(frames[0].save, file_path,save_all=True,append_images=frames[1:],optimize=False,duration=50,loop=0))
-            await ctx.reply(file=discord.File(file_path, "roulette.gif"), embed=discord.Embed(description=f"「{sectors[winning_index]}」が当たりました。", color=discord.Color.blue()))
+            file = discord.File(file_path, "roulette.gif")
+            await ctx.reply(file=file, embed=discord.Embed(description=f"「{sectors[winning_index]}」が当たりました。", color=discord.Color.blue()))
         finally:
             check = await aiofiles.os.path.isfile(file_path)
             if check:
@@ -956,13 +1050,52 @@ class FunCog(commands.Cog):
 
     @cat_image.command(name="robokasu", description="ロボかすを生成します。")
     @commands.cooldown(2, 10, commands.BucketType.guild)
-    @commands.has_permissions(manage_emojis=True)
     async def robokasu(self, ctx: commands.Context, テキスト: str):
         await ctx.defer()
         async with aiohttp.ClientSession() as session:
             async with session.get(f"http://localhost:5002/robokasu?text={テキスト}") as resp:
                 i = io.BytesIO(await resp.read())
                 await ctx.reply(file=discord.File(i, "robo.png"))
+
+    @cat_image.command(name="emoji-layer", description="絵文字を重ねます")
+    @commands.cooldown(2, 10, commands.BucketType.guild)
+    @commands.is_nsfw()
+    async def emoji_layer(self, ctx: commands.Context, 絵文字1: discord.Emoji, 絵文字2: discord.Emoji):
+        await ctx.defer()
+        em1 = await 絵文字1.read()
+        check_one = await check_nsfw(em1)
+        if not check_one["safe"]:
+            return await ctx.reply(embed=discord.Embed(title="その絵文字は使用できません。", color=discord.Color.red()))
+        em2 = await 絵文字2.read()
+        check_two = await check_nsfw(em2)
+        if not check_two["safe"]:
+            return await ctx.reply(embed=discord.Embed(title="その絵文字は使用できません。", color=discord.Color.red()))
+        def create_image(em, em_2):
+            img1 = Image.open(io.BytesIO(em)).convert("RGBA")
+            img2 = Image.open(io.BytesIO(em_2)).convert("RGBA")
+            base_size = (256, 256)
+            img1 = img1.resize(base_size, Image.LANCZOS)
+            img2 = img2.resize(base_size, Image.LANCZOS)
+            stacked = Image.new("RGBA", base_size)
+            stacked.paste(img1, (0, 0), img1)
+            stacked.paste(img2, (0, 0), img2)
+            buffer = io.BytesIO()
+            stacked.save(buffer, format="PNG")
+            buffer.seek(0)
+            return buffer
+        img = await asyncio.get_running_loop().run_in_executor(None, partial(create_image, em1, em2))
+        files = await asyncio.get_running_loop().run_in_executor(None, partial(discord.File, img, filename="emoji_layer.png"))
+        await ctx.reply(file=files, embed=discord.Embed(title="絵文字を重ねました", color=discord.Color.green()))
+
+    @cat_image.command(name="nounai", description="脳内メーカーで遊びます")
+    @commands.cooldown(2, 10, commands.BucketType.guild)
+    async def nounai(self, ctx: commands.Context, 名前: str):
+        await ctx.reply(embed=discord.Embed(title="脳内メーカー", color=discord.Color.green()).set_image(url=f"https://maker.usoko.net/nounai/img/{名前}.gif"))
+
+    @cat_image.command(name="kakeizu", description="家系図を作成します。")
+    @commands.cooldown(2, 10, commands.BucketType.guild)
+    async def kakeizu(self, ctx: commands.Context, 名前: str):
+        await ctx.reply(embed=discord.Embed(title="家系図", color=discord.Color.green()).set_image(url=f"https://usokomaker.com/kakeizu_fantasy/r/img/{名前}.gif"))
 
 async def setup(bot):
     await bot.add_cog(FunCog(bot))
