@@ -64,6 +64,7 @@ class LockMessageRemove(discord.ui.View):
 class LockMessageCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.working = set()
         print(f"init -> LockMessageCog")
 
     async def add_reaction_lockmsg(self, message: discord.Message):
@@ -75,7 +76,7 @@ class LockMessageCog(commands.Cog):
         if dbfind is None:
             return
         try:
-            await discord.PartialMessage(channel=message.channel, id=dbfind["MessageID"]).add_reaction("🔄")
+            await discord.PartialMessage(channel=message.channel, id=dbfind["MessageID"]).add_reaction("⤵️")
         except:
             return
 
@@ -85,32 +86,54 @@ class LockMessageCog(commands.Cog):
             return
         if '!.' in message.content:
             return
+
         user_id = message.author.id
         db = self.bot.async_db["Main"].LockMessage
         try:
             dbfind = await db.find_one({"Channel": message.channel.id}, {"_id": False})
-        except:
+        except Exception as e:
             return
+
         if dbfind is None:
             return
-        current_time = time.time()
-        last_message_time = user_last_message_time.get(user_id, 0)
-        if current_time - last_message_time < COOLDOWN_TIME:
+        if message.channel.id in self.working:
             return
-        user_last_message_time[user_id] = current_time
-        await self.add_reaction_lockmsg(message)
-        await asyncio.sleep(5)
+
+        self.working.add(message.channel.id)
+
         try:
-            await discord.PartialMessage(channel=message.channel, id=dbfind["MessageID"]).delete()
-        except:
-            pass
-        await asyncio.sleep(2)
-        msg = await message.channel.send(embed=discord.Embed(title=dbfind["Title"], description=dbfind["Desc"], color=discord.Color.random()), view=LockMessageRemove())
-        await db.replace_one(
-            {"Channel": message.channel.id, "Guild": message.guild.id}, 
-            {"Channel": message.channel.id, "Guild": message.guild.id, "Title": dbfind["Title"], "Desc": dbfind["Desc"], "MessageID": msg.id}, 
-            upsert=True
-        )
+            if time.time() - discord.Object(id=dbfind["MessageID"]).created_at.timestamp() < 10:
+                return
+            await self.add_reaction_lockmsg(message)
+            await asyncio.sleep(5)
+
+            try:
+                await discord.PartialMessage(channel=message.channel, id=dbfind["MessageID"]).delete()
+            except discord.NotFound:
+                pass
+
+            embed = discord.Embed(
+                title=dbfind.get("Title", "固定メッセージ"),
+                description=dbfind.get("Desc", ""),
+                color=discord.Color.random()
+            )
+            msg = await message.channel.send(embed=embed, view=LockMessageRemove())
+
+            await db.replace_one(
+                {"Channel": message.channel.id, "Guild": message.guild.id},
+                {
+                    "Channel": message.channel.id,
+                    "Guild": message.guild.id,
+                    "Title": dbfind.get("Title", ""),
+                    "Desc": dbfind.get("Desc", ""),
+                    "MessageID": msg.id
+                },
+                upsert=True
+            )
+
+        finally:
+            self.working.remove(message.channel.id)
+
 
 async def setup(bot):
     await bot.add_cog(LockMessageCog(bot))
